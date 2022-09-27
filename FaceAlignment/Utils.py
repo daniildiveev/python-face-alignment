@@ -3,7 +3,7 @@ from typing import List
 import numpy as np
 import cv2
 
-from FaceAlignment import BoundingBox
+from Models import BoundingBox
 
 def project_shape(shape:np.ndarray, bounding_box:BoundingBox) -> np.ndarray:
     temp = np.zeros(shape.shape[0], 2)
@@ -33,7 +33,8 @@ def get_mean_shape(shapes:List[np.ndarray], bounding_boxes:List[BoundingBox]) ->
 
 def similarity_transform(shape1:np.ndarray,
                          shape2:np.ndarray,
-                         rotation:np.ndarray) -> None:
+                         rotation:np.ndarray,
+                         scale:float) -> None:
 
     center_x_1, center_y_1, center_x_2, center_y_2 = (0, 0, 0, 0)
 
@@ -56,8 +57,8 @@ def similarity_transform(shape1:np.ndarray,
         temp2[i][0] -= center_x_2
         temp2[i][1] -= center_y_2
     
-    covar1, m1 = cv2.calcCovarMatrix(temp1, cv2.cv.CV_COVAR_COLS)
-    covar2, m2 = cv2.calcCovarMatrix(temp2, cv2.cv.CV_COVAR_COLS)
+    covar1, _ = cv2.calcCovarMatrix(temp1, cv2.cv.CV_COVAR_COLS)
+    covar2, _ = cv2.calcCovarMatrix(temp2, cv2.cv.CV_COVAR_COLS)
 
     s1 = np.linalg.norm(covar1)
     s2 = np.linalg.norm(covar2)
