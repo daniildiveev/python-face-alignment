@@ -167,9 +167,23 @@ class Fern:
 
         return self.__bin_outuput[index]
                            
-    def write(self) -> None:
-        raise NotImplementedError
-    
+    def write(self, path) -> None:
+        with open(path, 'r') as f:
+            f.write(str(self.__fern_pixel_num) + '\n')
+            f.write(str(self.__landmark_num) + '\n')
+            
+            for i in range(self.__fern_pixel_num):
+                data = tuple(np.append(self.__selected_pixel_locations[i], 
+                                       self.__selected_nearest_landmark_index[i], 
+                                       self.__threshold[i],))
+                output = ("%s " * len(data) + "\n") % data
+                f.write(output)
+
+            for i in range(len(self.__bin_outuput)):
+                for j in range(len(self.__bin_outuput[i])):
+                    f.write("%s %s ")
+                f.write("\n")
+                
 
 class FernCascade:
     def __init__(self,
