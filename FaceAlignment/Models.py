@@ -12,7 +12,6 @@ class BoundingBox:
         self.centroid_x = 0
         self.centroid_y = 0
 
-
 class Fern:
     def __init__(self,
                  fern_pixel_num:int,) -> None:
@@ -138,10 +137,35 @@ class Fern:
                 rotation:np.ndarray,
                 bounding_box: BoundingBox,
                 scale:float) -> np.ndarray:
-        raise NotImplementedError
-    
-    def read(self) -> None:
-        raise NotImplementedError
+        index = 0 
+
+        for i in range(self.__fern_pixel_num):
+            nearest_landmark_index_1 = self.__selected_nearest_landmark_index[i][0]
+            nearest_landmark_index_2 = self.__selected_nearest_landmark_index[i][1]
+
+            x = self.__selected_pixel_locations[i][0]
+            y = self.__selected_pixel_locations[i][1]
+            
+            project_x = scale * (rotation[0][0] * x + rotation[0][1] * y) * bounding_box.width / 2. + shape[nearest_landmark_index_1][0]
+            project_y = scale * (rotation[1][0] * x + rotation[1][1] * y) * bounding_box.height / 2. + shape[nearest_landmark_index_1][1]
+
+            project_x = max(0., min(project_x, image.shape[1] - 1.))
+            project_y = max(0., min(project_y, image.shape[0] - 1.))
+
+            intensity_1 = int(image[int(project_y)][int(project_x)])
+
+            x = self.__selected_pixel_locations[i][2]
+            y = self.__selected_pixel_locations[i][3]
+
+            project_x = scale * (rotation[0][0] * x + rotation[0][1]) * bounding_box.width / 2. + shape[nearest_landmark_index_2][0]
+            project_y = scale * (rotation[1][0] * x + rotation[1][1]) * bounding_box.width / 2. + shape[nearest_landmark_index_2][1]
+
+            intensity_2 = int(image[int(project_y)][int(project_y)])
+
+            if intensity_1 - intensity_2 >= self.__threshold[i]:
+                index += 2 ** i
+
+        return self.__bin_outuput[index]
                            
     def write(self) -> None:
         raise NotImplementedError
