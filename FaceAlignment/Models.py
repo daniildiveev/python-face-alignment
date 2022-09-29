@@ -174,7 +174,7 @@ class Fern:
         return self.__bin_outuput[index]
                            
     def write(self, path) -> None:
-        with open(path, 'r') as f:
+        with open(path, 'a+') as f:
             f.write(str(self.__fern_pixel_num) + '\n')
             f.write(str(self.__landmark_num) + '\n')
             
@@ -342,8 +342,15 @@ class FernCascade:
     def read(self) -> None:
         raise NotImplementedError
 
-    def write(self) -> None:
-        raise NotImplementedError
+    def write(self, path) -> None:
+        with open(path, 'a+') as f:
+            f.write(str(self.__second_level_num))
+
+            for fern in self.__ferns:
+                fern.write(path)
+
+    
+                
 
 
 class ShapeRegressor:
