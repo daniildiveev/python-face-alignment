@@ -3,7 +3,14 @@ from typing import List
 import numpy as np
 import cv2
 
-from Models import BoundingBox
+class BoundingBox:
+    def __init__(self):
+        self.start_x = 0
+        self.start_y = 0
+        self.width = 0
+        self.height = 0
+        self.centroid_x = 0
+        self.centroid_y = 0
 
 def project_shape(shape:np.ndarray, bounding_box:BoundingBox) -> np.ndarray:
     temp = np.zeros(shape.shape[0], 2)
@@ -32,9 +39,7 @@ def get_mean_shape(shapes:List[np.ndarray], bounding_boxes:List[BoundingBox]) ->
     return 1. / len(shapes) * result
 
 def similarity_transform(shape1:np.ndarray,
-                         shape2:np.ndarray,
-                         rotation:np.ndarray,
-                         scale:float) -> None:
+                         shape2:np.ndarray,) -> None:
 
     center_x_1, center_y_1, center_x_2, center_y_2 = (0, 0, 0, 0)
 
@@ -78,7 +83,11 @@ def similarity_transform(shape1:np.ndarray,
     sin_theta = num / norm
     cos_theta = den / norm
 
+    rotation = np.zeros((2, 2))
+
     rotation[0][0] = cos_theta
     rotation[0][1] = -sin_theta
     rotation[1][0] = sin_theta
     rotation[1][1] = cos_theta
+
+    return rotation, scale
