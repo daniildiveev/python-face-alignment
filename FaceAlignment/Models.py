@@ -4,13 +4,18 @@ import time
 
 import cv2
 import numpy as np
+from sklearn.exceptions import NotFittedError
 
 from FaceAlignment.Utils import *
+
+class NotFittedError(Exception):
+    pass
 
 class Fern:
     def __init__(self,
                  fern_pixel_num:int,) -> None:
         self.__fern_pixel_num = fern_pixel_num
+        self.__fitted = False
         
     def train(self,
               candidate_pixel_intensity:List[np.ndarray],
@@ -123,6 +128,8 @@ class Fern:
             for j in range(bin_size):
                 index = shapes_in_bin[i][j]
                 prediction[index] = temp
+        
+        self.__fitted = True
 
         return prediction
 
@@ -132,6 +139,10 @@ class Fern:
                 rotation:np.ndarray,
                 bounding_box: BoundingBox,
                 scale:float) -> np.ndarray:
+        
+        if not self.__fitted:
+            raise NotFittedError("")
+
         index = 0 
 
         for i in range(self.__fern_pixel_num):
@@ -186,6 +197,7 @@ class FernCascade:
                  second_level_num_:int,) -> None:
         self.__ferns = ferns_
         self.__second_level_num = second_level_num_
+        self.__fitted = False
 
     def train(self, 
               images:List[np.ndarray],
@@ -300,16 +312,32 @@ class FernCascade:
             rotation = rotation.T
             prediction[i] = scale * prediction[i] * rotation
 
-        return prediction
-        
+        self.__fitted = True
 
+        return prediction
 
     def predict(self,
                 image:np.ndarray,
                 bounding_box:BoundingBox,
                 mean_shape:np.ndarray,
                 shape:np.ndarray) -> np.ndarray:
-        raise NotImplementedError
+        if not self.__fitted:
+            raise NotFittedError("")
+
+        result = np.zeros((shape.shape[0], 2))
+        rotation, scale = similarity_transform(project_shape(shape, bounding_box),
+                                               mean_shape)
+        
+        for fern in self.__ferns:
+            result += fern.predict(image, shape, rotation, bounding_box, scale)
+
+        rotation, scale = similarity_transform(project_shape(shape, bounding_box),
+                                               mean_shape)
+        
+        rotation = rotation.T
+        result = scale * result * rotation
+
+        return result
     
     def read(self) -> None:
         raise NotImplementedError
