@@ -1,16 +1,11 @@
+from re import L
 from typing import List
+import time
 
 import cv2
 import numpy as np
 
-class BoundingBox:
-    def __init__(self):
-        self.start_x = 0
-        self.start_y = 0
-        self.width = 0
-        self.height = 0
-        self.centroid_x = 0
-        self.centroid_y = 0
+from FaceAlignment.Utils import *
 
 class Fern:
     def __init__(self,
@@ -189,7 +184,8 @@ class FernCascade:
     def __init__(self,
                  ferns_:List[Fern],
                  second_level_num_:int,) -> None:
-        raise NotImplementedError
+        self.__ferns = ferns_
+        self.__second_level_num = second_level_num_
 
     def train(self, 
               images:List[np.ndarray],
@@ -198,11 +194,115 @@ class FernCascade:
               bounding_box:List[BoundingBox],
               mean_shape:np.ndarray, 
               second_level_num:int,
-              candidate_level_pixel_num:int,
+              candidate_pixel_num:int,
               fern_pixel_num:int, 
               curr_level_num:int,
               first_level_num:int,) -> List[np.ndarray]:
-        raise NotImplementedError
+        self.__candidate_pixel_locations = np.zeros(candidate_pixel_num, 2)
+        self.__nearest_landmark_index = np.zeros(candidate_pixel_num, 1)
+        self.regression_targets = [[] for _ in range(len(current_shapes))]
+
+        for i in range(len(current_shapes)):
+            self.regression_targets[i] = project_shape(ground_truth_shapes[i], bounding_box[i]) - \
+                                         project_shape(current_shapes[i], bounding_box[i])
+
+            rotation, scale = similarity_transform(mean_shape, 
+                                                   project_shape(current_shapes[i], bounding_box[i]))
+
+            rotation = rotation.T
+            self.regression_targets = scale * self.regression_targets[i] * rotation 
+
+        i = 0
+
+        while i < candidate_pixel_num:
+            x, y = np.random.uniform(-1., 1., size=(2,))
+
+            if x ** 2 + y ** 2 < 1.:
+                i -= 1
+                continue
+
+            min_dist = 1e10
+            min_index = 0
+
+            for j in range(mean_shape.shape[0]):
+                temp = (mean_shape[j][0] - x) ** 2 - (mean_shape[j][1] - y) ** 2
+
+                if temp < min_dist:
+                    min_dist = temp
+                    min_index = j
+
+            self.__candidate_pixel_locations[i][0] = x - mean_shape[min_index][0]
+            self.__candidate_pixel_locations[i][1] = y - mean_shape[min_index][1]
+            self.__nearest_landmark_index[i] = min_index
+
+            i += 1
+
+        denseties = [[] for _ in range(candidate_pixel_num)]
+
+        for i in range(len(images)):
+            temp = project_shape(current_shapes[i], bounding_box[i])
+            rotation, scale = similarity_transform(temp, mean_shape)
+
+            for j in range(candidate_pixel_num):
+                project_x = rotation[0][0] * self.__candidate_pixel_locations[j][0] + \
+                    rotation[0][1] * self.__candidate_pixel_locations[j][1]
+                project_y = rotation[1][0] * self.__candidate_pixel_locations[j][0] + \
+                    rotation[1][1] * self.__candidate_pixel_locations[j][1]
+
+                index = self.__nearest_landmark_index[j]
+                real_x = int(project_x + current_shapes[i][index][0])
+                real_y = int(project_y + current_shapes[i][index][1])
+                
+                real_x = max(0., min(real_x, images[i].shape[1] - 1.))
+                real_y = max(0., min(real_y, images[i].shape[0] - 1.))
+
+                denseties[j].append(int(images[i][real_y][real_x]))
+
+        denseties = np.array(denseties)
+        covarience = np.zeros((candidate_pixel_num, candidate_pixel_num))
+
+        for i in range(candidate_pixel_num):
+            for j in range(i, candidate_pixel_num):
+                correlation_result = np.cov(denseties[i], denseties[j])
+                covarience[i][j], covarience[j][j] = correlation_result, correlation_result
+
+        prediction = [np.zeros((mean_shape.shape[0], 2)) for _ in range(len(self.regression_targets))]
+
+        if len(self.__ferns) != self.__second_level_num:
+            raise ValueError("num ferns must be %s, got %s", (self.__second_level_num, len(self.__ferns)))
+
+        t = time.time()
+
+        for i in range(self.__second_level_num):
+            temp = self.__ferns[i].train(denseties, 
+                                         covarience,
+                                         self.__candidate_pixel_locations, 
+                                         self.__nearest_landmark_index, 
+                                         self.regression_targets,
+                                         fern_pixel_num)
+            
+            for j in range(len(temp)):
+                prediction[j] += temp[j]
+                self.regression_targets -= temp[j]
+
+            if (i + 1) % 50:
+                print(f"Fern cascades: {curr_level_num} out of {first_level_num};") 
+                print(f"Ferns: {i+1} out of {self.__second_level_num}")
+
+                remaining_level_num = (first_level_num - curr_level_num) * 500 + second_level_num - i
+                time_remaining = 0.02 * (time.time() - t) * remaining_level_num
+
+                print(f"Expected remaining time: {time_remaining / 60} min {int(time_remaining) % 60} sec")
+                t = time.time()
+
+        for i in range(len(prediction)):
+            rotation, scale = similarity_transform(current_shapes[i], bounding_box[i], mean_shape)
+            rotation = rotation.T
+            prediction[i] = scale * prediction[i] * rotation
+
+        return prediction
+        
+
 
     def predict(self,
                 image:np.ndarray,
