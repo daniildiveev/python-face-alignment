@@ -1,10 +1,8 @@
-from re import L
 from typing import List
 import time
 
 import cv2
 import numpy as np
-from sklearn.exceptions import NotFittedError
 
 from FaceAlignment.Utils import *
 
@@ -193,9 +191,9 @@ class Fern:
 
 class FernCascade:
     def __init__(self,
-                 ferns_:List[Fern],
+                 fern_pixel_num:int,
                  second_level_num_:int,) -> None:
-        self.__ferns = ferns_
+        self.__ferns = [Fern(fern_pixel_num) for _ in range(second_level_num_)]
         self.__second_level_num = second_level_num_
         self.__fitted = False
 
@@ -205,9 +203,7 @@ class FernCascade:
               ground_truth_shapes:List[np.ndarray],
               bounding_box:List[BoundingBox],
               mean_shape:np.ndarray, 
-              second_level_num:int,
-              candidate_pixel_num:int,
-              fern_pixel_num:int, 
+              candidate_pixel_num:int, 
               curr_level_num:int,
               first_level_num:int,) -> List[np.ndarray]:
         self.__candidate_pixel_locations = np.zeros(candidate_pixel_num, 2)
@@ -230,7 +226,6 @@ class FernCascade:
             x, y = np.random.uniform(-1., 1., size=(2,))
 
             if x ** 2 + y ** 2 < 1.:
-                i -= 1
                 continue
 
             min_dist = 1e10
@@ -290,8 +285,7 @@ class FernCascade:
                                          covarience,
                                          self.__candidate_pixel_locations, 
                                          self.__nearest_landmark_index, 
-                                         self.regression_targets,
-                                         fern_pixel_num)
+                                         self.regression_targets)
             
             for j in range(len(temp)):
                 prediction[j] += temp[j]
@@ -301,7 +295,7 @@ class FernCascade:
                 print(f"Fern cascades: {curr_level_num} out of {first_level_num};") 
                 print(f"Ferns: {i+1} out of {self.__second_level_num}")
 
-                remaining_level_num = (first_level_num - curr_level_num) * 500 + second_level_num - i
+                remaining_level_num = (first_level_num - curr_level_num) * 500 + self.__second_level_num - i
                 time_remaining = 0.02 * (time.time() - t) * remaining_level_num
 
                 print(f"Expected remaining time: {time_remaining / 60} min {int(time_remaining) % 60} sec")
@@ -349,36 +343,101 @@ class FernCascade:
             for fern in self.__ferns:
                 fern.write(path)
 
-    
-                
-
 
 class ShapeRegressor:
     def __init__(self, 
                  first_level_num_:int,
-                 landmark_num_:int,
                  fern_cascades_: List[FernCascade],
-                 mean_shape_:np.ndarray, 
-                 training_shapes_:List[np.ndarray], 
                  bounding_box_:List[BoundingBox],) -> None:
-        raise NotImplementedError
+        self.__first_level_num = first_level_num_
+        self.__fern_cascades = fern_cascades_
+        self.__bounding_box = bounding_box_
 
     def train(self,
               images:List[np.ndarray],
               ground_truth_shapes:List[np.ndarray],
-              bounding_box:List[BoundingBox],
-              first_level_num:int,
               second_level_num:int,
               candidate_pixel_num:int, 
               fern_pixel_num:int,
               initial_num:int) -> None:
-        raise NotImplementedError
+        print('Start training ...')
+
+        self.__landmark_num = ground_truth_shapes[0].shape[0]
+        self.__training_shapes = ground_truth_shapes.copy()
+        images = np.array(images)
+        augmented_images = []
+        augmented_bounding_box = []
+        augmented_ground_truth_shapes = []
+        self.current_shapes = []
+
+        for i in range(len(images)):
+            augmentation_indexes = np.random.randint(0, len(images), size=(initial_num,))
+            
+            for ai in augmentation_indexes:
+                augmented_images.append(images[i])
+                augmented_ground_truth_shapes.append(ground_truth_shapes[i])
+                augmented_bounding_box.append(self.__bounding_box[i])
+
+                temp = ground_truth_shapes[ai]
+                temp = project_shape(temp, self.__bounding_box[ai])
+                temp = reproject_shape(temp, self.__bounding_box[i])
+
+                self.current_shapes.append(temp)
+
+        self.__mean_shape = get_mean_shape(ground_truth_shapes, self.__bounding_box)
+
+        ferncascade_params = {
+            'fern_pixel_num' : fern_pixel_num,
+            'second_level_num_' : second_level_num
+        }
+
+
+        self.__fern_cascades = [FernCascade(**ferncascade_params) for _ in range(self.__first_level_num)]
+
+        for i in range(self.__first_level_num):
+            print(f"Training fern cascades: {i+1} out of {self.__first_level_num}")
+            prediction = self.__fern_cascades[i].train(augmented_images,
+                                                       self.current_shapes,
+                                                       augmented_ground_truth_shapes, 
+                                                       augmented_bounding_box,
+                                                       self.__mean_shape,
+                                                       candidate_pixel_num, 
+                                                       i + 1,
+                                                       self.__first_level_num)
+
+            for j in range(len(prediction)):
+                self.current_shapes[j] = prediction[j] + project_shape(self.current_shapes[j], augmented_bounding_box[j])
+                self.current_shapes[j] = reproject_shape(self.current_shapes, augmented_bounding_box[j])
+
+
 
     def predict(self,
-                image:np.ndarray, 
+                image:np.ndarray,
                 bounding_box:BoundingBox,
                 initial_num:int,) -> np.ndarray:
-        raise NotImplementedError
+        result = np.zeros((self.__landmark_num, 2))
+
+        for i in range(initial_num):
+            index = int(np.random.uniform(0, len(self.__training_shapes)))
+            current_shape = self.__training_shapes[index]
+            current_bounding_box = self.__bounding_box[index]
+
+            current_shape = project_shape(current_shape, current_bounding_box)
+            current_shape = reproject_shape(current_shape, bounding_box)
+
+            for fern_cascade in self.__fern_cascades:
+                prediction = fern_cascade.predict(image, 
+                                                  bounding_box, 
+                                                  self.__mean_shape,
+                                                  current_shape)
+
+                current_shape = prediction + project_shape(current_shape, bounding_box)
+                current_shape = reproject_shape(current_shape, bounding_box)
+
+            result += current_shape
+
+        return 1. / initial_num * result
+
 
     def read(self) -> None:
         raise NotImplementedError
