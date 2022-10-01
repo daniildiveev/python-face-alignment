@@ -1,5 +1,6 @@
 import cv2
-from FaceAlignment.Models import *
+import numpy as np
+from FaceAlignment.Models import ShapeRegressor
 from FaceAlignment.Utils import BoundingBox
 
 def main() -> None:
