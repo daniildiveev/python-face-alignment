@@ -444,7 +444,8 @@ class ShapeRegressor:
     def write(self) -> None:
         raise NotImplementedError
 
-    def load(self, path:str) -> None:
+    @classmethod
+    def load(cls, path:str) -> None:
         raise NotImplementedError
 
     def save(self, path:str) -> None:
