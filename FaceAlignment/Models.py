@@ -3,6 +3,7 @@ import time
 
 import cv2
 import numpy as np
+import pickle5 as pickle
 
 from FaceAlignment.Utils import *
 
@@ -347,10 +348,8 @@ class FernCascade:
 class ShapeRegressor:
     def __init__(self, 
                  first_level_num_:int,
-                 fern_cascades_: List[FernCascade],
                  bounding_box_:List[BoundingBox],) -> None:
         self.__first_level_num = first_level_num_
-        self.__fern_cascades = fern_cascades_
         self.__bounding_box = bounding_box_
 
     def train(self,
