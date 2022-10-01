@@ -171,23 +171,6 @@ class Fern:
                 index += 2 ** i
 
         return self.__bin_outuput[index]
-                           
-    def write(self, path) -> None:
-        with open(path, 'a+') as f:
-            f.write(str(self.__fern_pixel_num) + '\n')
-            f.write(str(self.__landmark_num) + '\n')
-            
-            for i in range(self.__fern_pixel_num):
-                data = tuple(np.append(self.__selected_pixel_locations[i], 
-                                       self.__selected_nearest_landmark_index[i], 
-                                       self.__threshold[i],))
-                output = ("%s " * len(data) + "\n") % data
-                f.write(output)
-
-            for i in range(len(self.__bin_outuput)):
-                for j in range(len(self.__bin_outuput[i])):
-                    f.write("%s %s ")
-                f.write("\n")
                 
 
 class FernCascade:
@@ -333,24 +316,24 @@ class FernCascade:
         result = scale * result * rotation
 
         return result
-    
-    def read(self) -> None:
-        raise NotImplementedError
-
-    def write(self, path) -> None:
-        with open(path, 'a+') as f:
-            f.write(str(self.__second_level_num))
-
-            for fern in self.__ferns:
-                fern.write(path)
 
 
 class ShapeRegressor:
     def __init__(self, 
                  first_level_num_:int,
-                 bounding_box_:List[BoundingBox],) -> None:
+                 bounding_box_:List[BoundingBox],
+                 landmark_num:int=None,
+                 training_shapes:List[np.ndarray]=None,
+                 mean_shape=None,
+                 ferncascade_params:dict=None) -> None:
         self.__first_level_num = first_level_num_
         self.__bounding_box = bounding_box_
+        self.landmark_num = landmark_num
+        self.training_shapes = training_shapes
+        self.mean_shape = mean_shape
+        self.ferncascade_params = ferncascade_params
+
+        self.__fitted = False
 
     def train(self,
               images:List[np.ndarray],
@@ -361,8 +344,8 @@ class ShapeRegressor:
               initial_num:int) -> None:
         print('Start training ...')
 
-        self.__landmark_num = ground_truth_shapes[0].shape[0]
-        self.__training_shapes = ground_truth_shapes.copy()
+        self.__landmark_num = self.landmark_num or ground_truth_shapes[0].shape[0]
+        self.__training_shapes = self.training_shapes or ground_truth_shapes.copy()
         images = np.array(images)
         augmented_images = []
         augmented_bounding_box = []
@@ -383,15 +366,15 @@ class ShapeRegressor:
 
                 self.current_shapes.append(temp)
 
-        self.__mean_shape = get_mean_shape(ground_truth_shapes, self.__bounding_box)
+        self.__mean_shape = self.mean_shape or get_mean_shape(ground_truth_shapes, self.__bounding_box)
 
-        ferncascade_params = {
+        self.__ferncascade_params = self.ferncascade_params or {
             'fern_pixel_num' : fern_pixel_num,
             'second_level_num_' : second_level_num
         }
 
 
-        self.__fern_cascades = [FernCascade(**ferncascade_params) for _ in range(self.__first_level_num)]
+        self.__fern_cascades = [FernCascade(**self.__ferncascade_params) for _ in range(self.__first_level_num)]
 
         for i in range(self.__first_level_num):
             print(f"Training fern cascades: {i+1} out of {self.__first_level_num}")
@@ -407,8 +390,8 @@ class ShapeRegressor:
             for j in range(len(prediction)):
                 self.current_shapes[j] = prediction[j] + project_shape(self.current_shapes[j], augmented_bounding_box[j])
                 self.current_shapes[j] = reproject_shape(self.current_shapes, augmented_bounding_box[j])
-
-
+        
+        self.__fitted = True
 
     def predict(self,
                 image:np.ndarray,
@@ -437,16 +420,38 @@ class ShapeRegressor:
 
         return 1. / initial_num * result
 
-
-    def read(self) -> None:
-        raise NotImplementedError
-
-    def write(self) -> None:
-        raise NotImplementedError
-
     @classmethod
-    def load(cls, path:str) -> None:
-        raise NotImplementedError
+    def load(cls, path:str) -> 'ShapeRegressor':
+        with open(path) as f:
+            config = pickle.load(f)
+
+        return cls(
+            config['first_level_num'],
+            config['bounding_boxes'],
+            config['landmark_num'],
+            config['training_shapes'],
+            config['mean_shape'],
+            config['ferncascade_params']
+        )
 
     def save(self, path:str) -> None:
-        raise NotImplementedError
+        data = {
+            'first_level_num' : self.__first_level_num,
+            'landmark_num' : self.__mean_shape.shape[0],
+            'mean_shape' : [],
+            'training_shapes' : [],
+            'bounding_boxes' : [],
+            'ferncascade_config' : self.__ferncascade_params,
+        }
+
+        data['mean_shape'] = [tuple(self.__mean_shape[i]) for i in range(self.__mean_shape.shape[0])]
+        data['bounding_boxes'] = [(bounding_box.start_x,
+                                   bounding_box.start_y,
+                                   bounding_box.width,
+                                   bounding_box.height,
+                                   bounding_box.centroid_x,
+                                   bounding_box.centroid_y) for bounding_box in self.__bounding_box]
+        data['training_shapes'] = [self.__training_shapes[i].tolist() for i in range(len(self.__training_shapes))]
+        
+        with open(path, 'w+') as f:
+            pickle.dump(data, f)
