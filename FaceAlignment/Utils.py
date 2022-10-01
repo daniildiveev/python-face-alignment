@@ -4,13 +4,19 @@ import numpy as np
 import cv2
 
 class BoundingBox:
-    def __init__(self):
-        self.start_x = 0
-        self.start_y = 0
-        self.width = 0
-        self.height = 0
-        self.centroid_x = 0
-        self.centroid_y = 0
+    def __init__(self,
+                 start_x:int, 
+                 start_y:int,
+                 width:int,
+                 height:int,
+                 centroid_x:int,
+                 centroid_y:int) -> None:
+        self.start_x = start_x or 0
+        self.start_y = start_y or 0
+        self.width = width or 0
+        self.height = height or 0
+        self.centroid_x = centroid_x or 0
+        self.centroid_y = centroid_y or 0
 
 def project_shape(shape:np.ndarray, bounding_box:BoundingBox) -> np.ndarray:
     temp = np.zeros(shape.shape[0], 2)
