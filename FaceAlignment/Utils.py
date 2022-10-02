@@ -19,7 +19,8 @@ class BoundingBox:
         self.centroid_y = centroid_y or 0
 
 def project_shape(shape:np.ndarray, bounding_box:BoundingBox) -> np.ndarray:
-    temp = np.zeros(shape.shape[0], 2)
+    shape = np.array(shape)
+    temp = np.zeros((shape.shape[0], 2))
     
     for j in range(shape.shape[0]):
         temp[j][0] = (shape[j][0] - bounding_box.centroid_x) / (bounding_box.width / 2.)
@@ -28,7 +29,7 @@ def project_shape(shape:np.ndarray, bounding_box:BoundingBox) -> np.ndarray:
     return temp
 
 def reproject_shape(shape:np.ndarray, bounding_box:BoundingBox) -> np.ndarray:
-    temp = np.zeros(shape.shape[0], 2)
+    temp = np.zeros((shape.shape[0], 2))
 
     for j in range(shape.shape[0]):
         temp[j][0] = (shape[j][0] * bounding_box.width / 2. + bounding_box.centroid_x)
@@ -37,7 +38,7 @@ def reproject_shape(shape:np.ndarray, bounding_box:BoundingBox) -> np.ndarray:
     return temp
 
 def get_mean_shape(shapes:List[np.ndarray], bounding_boxes:List[BoundingBox]) -> np.ndarray:
-    result = np.zeros(shapes[0].shape[0], 2)
+    result = np.zeros((shapes[0].shape[0], 2))
 
     for i in range(len(shapes)):
         result += project_shape(shapes[i], bounding_boxes[i])
@@ -68,8 +69,8 @@ def similarity_transform(shape1:np.ndarray,
         temp2[i][0] -= center_x_2
         temp2[i][1] -= center_y_2
     
-    covar1, _ = cv2.calcCovarMatrix(temp1, cv2.cv.CV_COVAR_COLS)
-    covar2, _ = cv2.calcCovarMatrix(temp2, cv2.cv.CV_COVAR_COLS)
+    covar1, _ = cv2.calcCovarMatrix(temp1, np.zeros(len(temp1)).T, flags=cv2.COVAR_COLS)
+    covar2, _ = cv2.calcCovarMatrix(temp2, np.zeros(len(temp1)).T, flags=cv2.COVAR_COLS)
 
     s1 = np.linalg.norm(covar1)
     s2 = np.linalg.norm(covar2)
@@ -85,7 +86,7 @@ def similarity_transform(shape1:np.ndarray,
         num += temp1[i][1] * temp2[i][0] - temp1[i][0] * temp2[i][1]
         den += temp1[i][0] * temp2[i][0] + temp1[i][1] * temp2[i][1]
 
-    norm = np.sqrt(num ** 2 + den ** 2)
+    norm = np.sqrt(num ** 2 + den ** 2 + 1e-10)
     sin_theta = num / norm
     cos_theta = den / norm
 
@@ -97,3 +98,11 @@ def similarity_transform(shape1:np.ndarray,
     rotation[1][1] = cos_theta
 
     return rotation, scale
+
+def calculate_covarience(v1:np.ndarray,
+                         v2:np.ndarray):
+
+    v1 = v1 - np.mean(v1, dtype=np.float64)
+    v2 = v2 - np.mean(v2, dtype=np.float64)
+
+    return np.mean(np.dot(v1, v2))

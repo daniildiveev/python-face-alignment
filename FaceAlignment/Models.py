@@ -4,6 +4,7 @@ import time
 import cv2
 import numpy as np
 import pickle5 as pickle
+from tqdm import trange
 
 from FaceAlignment.Utils import *
 
@@ -23,9 +24,9 @@ class Fern:
               nearest_landmark_index:np.ndarray, 
               regression_targets:List[np.ndarray]) -> List[np.ndarray]:
         self.__landmark_num = regression_targets[0].shape[0]
-        self.__selected_pixel_index = np.zeros(self.__fern_pixel_num, 2)
-        self.__selected_pixel_locations = np.zeros(self.__fern_pixel_num, 4)
-        self.__selected_nearest_landmark_index = np.zeros(self.__fern_pixel_num, 2)
+        self.__selected_pixel_index = np.zeros((self.__fern_pixel_num, 2))
+        self.__selected_pixel_locations = np.zeros((self.__fern_pixel_num, 4))
+        self.__selected_nearest_landmark_index = np.zeros((self.__fern_pixel_num, 2))
         
         self.__candidate_pixel_num = candidate_pixel_locations.shape[0]
 
@@ -34,25 +35,24 @@ class Fern:
         for i in range(self.__fern_pixel_num):
             random_direction = np.random.uniform(-1, 1, (self.__landmark_num, 2))
             random_direction = cv2.normalize(random_direction, random_direction)
-
             projection_result = np.zeros(len(regression_targets))
 
             for j in range(len(regression_targets)):
-                projection_result[j] = np.sum(np.dot(regression_targets[j], random_direction))
+                projection_result[j] = np.sum(regression_targets[j] * random_direction)
 
             covariance_projection_density = np.zeros((self.__candidate_pixel_num, 1))
 
             for j in range(self.__candidate_pixel_num):
-                covariance_projection_density[j] = np.cov(projection_result, candidate_pixel_intensity[j])
+                covariance_projection_density[j] = calculate_covarience(projection_result, candidate_pixel_intensity[j])
 
             max_correlation = -1
             max_pixel_index_1, max_pixel_index_2 = 0, 0
 
             for j in range(self.__candidate_pixel_num):
                 for k in range(self.__candidate_pixel_num):
-                    temp1 = covariance[j][j] + covariance[k][k] - 2 * covariance[j][k]
+                    temp1 = covariance[j][j] + covariance[k][k] - 2 * covariance[j][k] 
 
-                    if abs(temp1) < 1e-10:
+                    if abs(float(temp1)) < 1e-10:
                         continue
 
                     flag = False
@@ -78,7 +78,7 @@ class Fern:
             self.__selected_pixel_locations[i][0] = candidate_pixel_locations[max_pixel_index_1][0]
             self.__selected_pixel_locations[i][1] = candidate_pixel_locations[max_pixel_index_1][1]
             self.__selected_pixel_locations[i][2] = candidate_pixel_locations[max_pixel_index_2][0]
-            self.__selected_pixel_locations[i][4] = candidate_pixel_locations[max_pixel_index_2][1]
+            self.__selected_pixel_locations[i][3] = candidate_pixel_locations[max_pixel_index_2][1]
             self.__selected_nearest_landmark_index[i][0] = nearest_landmark_index[max_pixel_index_1]
             self.__selected_nearest_landmark_index[i][1] = nearest_landmark_index[max_pixel_index_2]
 
@@ -97,20 +97,20 @@ class Fern:
             index = 0
 
             for j in range(self.__fern_pixel_num):
-                density_1 = candidate_pixel_intensity[self.__selected_pixel_index[j][0]][i]
-                density_2 = candidate_pixel_intensity[self.__selected_pixel_index[j][1]][i]
+                density_1 = candidate_pixel_intensity[int(self.__selected_pixel_index[j][0])][i]
+                density_2 = candidate_pixel_intensity[int(self.__selected_pixel_index[j][1])][i]
 
                 if density_1 - density_2 >= self.__threshold[j]:
                     index += 2 ** j
                 
             shapes_in_bin[index].append(i)
 
-        shapes_in_bin = np.array(shapes_in_bin)
+        shapes_in_bin = np.array(shapes_in_bin, dtype=np.ndarray)
         prediction = [[] for _ in range(len(regression_targets))]
         self.__bin_outuput = [[] for _ in range(bin_num)]
 
         for i in range(bin_num):
-            temp = np.zeros(self.__landmark_num, 2)
+            temp = np.zeros((self.__landmark_num, 2))
             bin_size = len(shapes_in_bin[i])
 
             for j in range(bin_size):
@@ -145,8 +145,8 @@ class Fern:
         index = 0 
 
         for i in range(self.__fern_pixel_num):
-            nearest_landmark_index_1 = self.__selected_nearest_landmark_index[i][0]
-            nearest_landmark_index_2 = self.__selected_nearest_landmark_index[i][1]
+            nearest_landmark_index_1 = int(self.__selected_nearest_landmark_index[i][0])
+            nearest_landmark_index_2 = int(self.__selected_nearest_landmark_index[i][1])
 
             x = self.__selected_pixel_locations[i][0]
             y = self.__selected_pixel_locations[i][1]
@@ -162,11 +162,12 @@ class Fern:
             x = self.__selected_pixel_locations[i][2]
             y = self.__selected_pixel_locations[i][3]
 
-            project_x = scale * (rotation[0][0] * x + rotation[0][1]) * bounding_box.width / 2. + shape[nearest_landmark_index_2][0]
-            project_y = scale * (rotation[1][0] * x + rotation[1][1]) * bounding_box.width / 2. + shape[nearest_landmark_index_2][1]
+            project_x = scale * (rotation[0][0] * x + rotation[0][1] * y) * bounding_box.width / 2. + shape[nearest_landmark_index_2][0]
+            project_y = scale * (rotation[1][0] * x + rotation[1][1] * y) * bounding_box.width / 2. + shape[nearest_landmark_index_2][1]
 
+            print(int(project_x), int(project_y))
             intensity_2 = int(image[int(project_y)][int(project_y)])
-
+        
             if intensity_1 - intensity_2 >= self.__threshold[i]:
                 index += 2 ** i
 
@@ -190,8 +191,8 @@ class FernCascade:
               candidate_pixel_num:int, 
               curr_level_num:int,
               first_level_num:int,) -> List[np.ndarray]:
-        self.__candidate_pixel_locations = np.zeros(candidate_pixel_num, 2)
-        self.__nearest_landmark_index = np.zeros(candidate_pixel_num, 1)
+        self.__candidate_pixel_locations = np.zeros((candidate_pixel_num, 2))
+        self.__nearest_landmark_index = np.zeros((candidate_pixel_num, 1))
         self.regression_targets = [[] for _ in range(len(current_shapes))]
 
         for i in range(len(current_shapes)):
@@ -202,7 +203,7 @@ class FernCascade:
                                                    project_shape(current_shapes[i], bounding_box[i]))
 
             rotation = rotation.T
-            self.regression_targets = scale * self.regression_targets[i] * rotation 
+            self.regression_targets[i] = scale * np.dot(self.regression_targets[i], rotation) 
 
         i = 0
 
@@ -230,7 +231,7 @@ class FernCascade:
 
         denseties = [[] for _ in range(candidate_pixel_num)]
 
-        for i in range(len(images)):
+        for i in trange(len(images)):
             temp = project_shape(current_shapes[i], bounding_box[i])
             rotation, scale = similarity_transform(temp, mean_shape)
 
@@ -240,22 +241,17 @@ class FernCascade:
                 project_y = rotation[1][0] * self.__candidate_pixel_locations[j][0] + \
                     rotation[1][1] * self.__candidate_pixel_locations[j][1]
 
-                index = self.__nearest_landmark_index[j]
+                index = int(self.__nearest_landmark_index[j][0])
+
                 real_x = int(project_x + current_shapes[i][index][0])
                 real_y = int(project_y + current_shapes[i][index][1])
-                
-                real_x = max(0., min(real_x, images[i].shape[1] - 1.))
-                real_y = max(0., min(real_y, images[i].shape[0] - 1.))
+                real_x = int(max(0., min(real_x, images[i].shape[1] - 1.)))
+                real_y = int(max(0., min(real_y, images[i].shape[0] - 1.)))
 
-                denseties[j].append(int(images[i][real_y][real_x]))
+                denseties[j].append(images[i][real_y][real_x])
 
         denseties = np.array(denseties)
-        covarience = np.zeros((candidate_pixel_num, candidate_pixel_num))
-
-        for i in range(candidate_pixel_num):
-            for j in range(i, candidate_pixel_num):
-                correlation_result = np.cov(denseties[i], denseties[j])
-                covarience[i][j], covarience[j][j] = correlation_result, correlation_result
+        covarience = np.cov(denseties)
 
         prediction = [np.zeros((mean_shape.shape[0], 2)) for _ in range(len(self.regression_targets))]
 
@@ -275,20 +271,19 @@ class FernCascade:
                 prediction[j] += temp[j]
                 self.regression_targets -= temp[j]
 
-            if (i + 1) % 50:
+            if (i + 1) % 5 == 0:
                 print(f"Fern cascades: {curr_level_num} out of {first_level_num};") 
                 print(f"Ferns: {i+1} out of {self.__second_level_num}")
 
                 remaining_level_num = (first_level_num - curr_level_num) * 500 + self.__second_level_num - i
-                time_remaining = 0.02 * (time.time() - t) * remaining_level_num
+                time_remaining = 0.2 * (time.time() - t) * remaining_level_num
 
-                print(f"Expected remaining time: {time_remaining / 60} min {int(time_remaining) % 60} sec")
-                t = time.time()
+                print(f"Expected remaining time: {time_remaining // 60} min {int(time_remaining) % 60} sec")
 
         for i in range(len(prediction)):
-            rotation, scale = similarity_transform(current_shapes[i], bounding_box[i], mean_shape)
+            rotation, scale = similarity_transform(project_shape(current_shapes[i], bounding_box[i]), mean_shape)
             rotation = rotation.T
-            prediction[i] = scale * prediction[i] * rotation
+            prediction[i] = scale * np.dot(prediction[i], rotation)
 
         self.__fitted = True
 
@@ -313,7 +308,7 @@ class FernCascade:
                                                mean_shape)
         
         rotation = rotation.T
-        result = scale * result * rotation
+        result = scale * np.dot(result, rotation)
 
         return result
 
@@ -346,14 +341,14 @@ class ShapeRegressor:
 
         self.__landmark_num = self.landmark_num or ground_truth_shapes[0].shape[0]
         self.__training_shapes = self.training_shapes or ground_truth_shapes.copy()
-        images = np.array(images)
+        images = np.array(images,dtype=np.ndarray)
         augmented_images = []
         augmented_bounding_box = []
         augmented_ground_truth_shapes = []
         self.current_shapes = []
 
         for i in range(len(images)):
-            augmentation_indexes = np.random.randint(0, len(images), size=(initial_num,))
+            augmentation_indexes = np.random.randint(0, len(images) - 1, size=(initial_num,))
             
             for ai in augmentation_indexes:
                 augmented_images.append(images[i])
@@ -375,7 +370,8 @@ class ShapeRegressor:
 
 
         self.__fern_cascades = [FernCascade(**self.__ferncascade_params) for _ in range(self.__first_level_num)]
-
+        self.current_shapes = np.array(self.current_shapes, dtype=np.ndarray)
+        
         for i in range(self.__first_level_num):
             print(f"Training fern cascades: {i+1} out of {self.__first_level_num}")
             prediction = self.__fern_cascades[i].train(augmented_images,
@@ -386,10 +382,10 @@ class ShapeRegressor:
                                                        candidate_pixel_num, 
                                                        i + 1,
                                                        self.__first_level_num)
-
+        
             for j in range(len(prediction)):
                 self.current_shapes[j] = prediction[j] + project_shape(self.current_shapes[j], augmented_bounding_box[j])
-                self.current_shapes[j] = reproject_shape(self.current_shapes, augmented_bounding_box[j])
+                self.current_shapes[j] = reproject_shape(self.current_shapes[j], augmented_bounding_box[j])
         
         self.__fitted = True
 
@@ -422,7 +418,7 @@ class ShapeRegressor:
 
     @classmethod
     def load(cls, path:str) -> 'ShapeRegressor':
-        with open(path) as f:
+        with open(path, 'rb') as f:
             config = pickle.load(f)
 
         return cls(
@@ -431,7 +427,7 @@ class ShapeRegressor:
             config['landmark_num'],
             config['training_shapes'],
             config['mean_shape'],
-            config['ferncascade_params']
+            config['ferncascade_config']
         )
 
     def save(self, path:str) -> None:
@@ -445,7 +441,7 @@ class ShapeRegressor:
         }
 
         data['mean_shape'] = [tuple(self.__mean_shape[i]) for i in range(self.__mean_shape.shape[0])]
-        data['bounding_boxes'] = [(bounding_box.start_x,
+        data['bounding_boxes'] = [BoundingBox(bounding_box.start_x,
                                    bounding_box.start_y,
                                    bounding_box.width,
                                    bounding_box.height,
@@ -453,5 +449,5 @@ class ShapeRegressor:
                                    bounding_box.centroid_y) for bounding_box in self.__bounding_box]
         data['training_shapes'] = [self.__training_shapes[i].tolist() for i in range(len(self.__training_shapes))]
         
-        with open(path, 'w+') as f:
+        with open(path, 'wb') as f:
             pickle.dump(data, f)
